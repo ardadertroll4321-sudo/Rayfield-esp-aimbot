@@ -1,0 +1,164 @@
+main.lua
+-- SERVICES
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- RAYFIELD
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "ESP + Aimbot",
+    LoadingTitle = "Rayfield UI",
+    LoadingSubtitle = "not skidded",
+    ConfigurationSaving = { Enabled = false }
+})
+
+local Tab = Window:CreateTab("Main", 4483362458)
+
+-- STATES
+local ESPEnabled = false
+local AimbotEnabled = false
+local AimSmoothness = 1
+
+-- STORAGE
+local Highlights = {}
+local Tracers = {}
+
+-- UTILS
+local function clampToScreen(pos)
+    local x = math.clamp(pos.X, 0, Camera.ViewportSize.X)
+    local y = math.clamp(pos.Y, 0, Camera.ViewportSize.Y)
+    return Vector2.new(x, y)
+end
+
+-- ESP
+local function createHighlight(player)
+    if player == LocalPlayer then return end
+    if not player.Character then return end
+    if Highlights[player] then return end
+
+    local h = Instance.new("Highlight")
+    h.FillColor = Color3.fromRGB(255, 0, 0)
+    h.OutlineColor = Color3.fromRGB(255, 255, 255)
+    h.FillTransparency = 0.5
+    h.Parent = player.Character
+
+    Highlights[player] = h
+end
+
+local function removeHighlight(player)
+    if Highlights[player] then
+        Highlights[player]:Destroy()
+        Highlights[player] = nil
+    end
+end
+
+-- TRACERS
+local function createTracer(player)
+    if Tracers[player] then return end
+    local line = Drawing.new("Line")
+    line.Thickness = 1.5
+    line.Color = Color3.fromRGB(255, 0, 0)
+    line.Transparency = 1
+    Tracers[player] = line
+end
+
+local function removeTracer(player)
+    if Tracers[player] then
+        Tracers[player]:Remove()
+        Tracers[player] = nil
+    end
+end
+
+-- TOGGLES
+Tab:CreateToggle({
+    Name = "ESP + Tracers",
+    CurrentValue = false,
+    Callback = function(v)
+        ESPEnabled = v
+        if not v then
+            for p in pairs(Highlights) do removeHighlight(p) end
+            for p in pairs(Tracers) do removeTracer(p) end
+        else
+            for _,p in ipairs(Players:GetPlayers()) do
+                createHighlight(p)
+                createTracer(p)
+            end
+        end
+    end
+})
+
+Tab:CreateToggle({
+    Name = "Aimbot (Torso)",
+    CurrentValue = false,
+    Callback = function(v)
+        AimbotEnabled = v
+    end
+})
+
+-- PLAYER HANDLING
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
+        task.wait(1)
+        if ESPEnabled then
+            createHighlight(player)
+            createTracer(player)
+        end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    removeHighlight(player)
+    removeTracer(player)
+end)
+
+-- MAIN LOOP
+RunService.RenderStepped:Connect(function()
+    if ESPEnabled then
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local myPos = LocalPlayer.Character.HumanoidRootPart.Position
+            local myScreen = Camera:WorldToViewportPoint(myPos)
+            local from = Vector2.new(myScreen.X, myScreen.Y)
+
+            for player, line in pairs(Tracers) do
+                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                    local enemyPos = player.Character.HumanoidRootPart.Position
+                    local enemyScreen = Camera:WorldToViewportPoint(enemyPos)
+                    line.Visible = true
+                    line.From = from
+                    line.To = clampToScreen(Vector2.new(enemyScreen.X, enemyScreen.Y))
+                else
+                    line.Visible = false
+                end
+            end
+        end
+    end
+
+    if AimbotEnabled then
+        local closest = nil
+        local shortest = math.huge
+        local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+
+        for _,p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                local pos, onScreen = Camera:WorldToViewportPoint(p.Character.HumanoidRootPart.Position)
+                if onScreen then
+                    local dist = (Vector2.new(pos.X,pos.Y) - center).Magnitude
+                    if dist < shortest then
+                        shortest = dist
+                        closest = p
+                    end
+                end
+            end
+        end
+
+        if closest and closest.Character then
+            Camera.CFrame = Camera.CFrame:Lerp(
+                CFrame.new(Camera.CFrame.Position, closest.Character.HumanoidRootPart.Position),
+                AimSmoothness
+            )
+        end
+    end
+end)
